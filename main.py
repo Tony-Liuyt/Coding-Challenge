@@ -12,29 +12,26 @@ class Disk:
 
 class PackingProblem:
     def __init__(self,
-        square_size: int,
-        disk_num: int,
         disk_small_proportion: float,
         disk_small_radius: int,
         disk_large_proportion: float,
         disk_large_radius: int,
-        overlap_threshold_proportion: float,
-        sample_num: int,
+        square_size = 20,
     ) -> None:
         self.square_size = square_size
-        self.disk_num = disk_num
         self.disk_small_radius = disk_small_radius
         self.disk_small_proportion = disk_small_proportion
         self.disk_large_radius = disk_large_radius
         self.disk_large_proportion = disk_large_proportion
-        self.overlap_threshold_proportion = overlap_threshold_proportion
-        self.sample_num = sample_num
+
+        self.disk_num = None
+        self.overlap_threshold_proportion = None
+        self.sample_num = None
         self.disks : list[Disk] = []
     
-    def calculate(self) -> float:
-        '''
-        Calculate packing fraction.
-        '''
+    def place_disks(self) -> None:
+        self.disks.clear()
+
         disk_small_num = 0
         disk_large_num = 0
         for _ in range(self.disk_num):
@@ -76,6 +73,33 @@ class PackingProblem:
                 
                 self.disks.append(new_disk)
 
+    def calculate_average(self, times: int) -> float:
+        proportions = []
+
+        for _ in range(times):
+            self.place_disks()
+            proportions.append(self.calculate())
+        
+        average = sum(proportions) / times
+
+        return average
+
+    def calculate_variance(self, times: int) -> float:
+        proportions = []
+
+        for _ in range(times):
+            self.place_disks()
+            proportions.append(self.calculate())
+        
+        average = sum(proportions) / times
+        variance = sum([(p-average)**2 for p in proportions]) / times
+
+        return variance
+
+    def calculate(self) -> float:
+        '''
+        Calculate packing fraction.
+        '''
         sample_inside_disks_num = 0
 
         for _ in range(self.sample_num):
@@ -109,45 +133,98 @@ class PackingProblem:
 
 def main() -> None:
     problems = [
-        # 1
         PackingProblem(
-            square_size=20,
-            disk_num=1000,
             disk_small_proportion=0.5,
             disk_small_radius=pi**-0.5,
             disk_large_proportion=0.5,
             disk_large_radius=pi**-0.5,
-            overlap_threshold_proportion=0.9,
-            sample_num=10000,
         ),
-        # 2
-
-        # 3
+        PackingProblem(
+            disk_small_proportion=0.5,
+            disk_small_radius=(1/(2*pi))**0.5,
+            disk_large_proportion=0.5,
+            disk_large_radius=(3/(2*pi))**0.5,
+        ),
+        PackingProblem(
+            disk_small_proportion=0.8,
+            disk_small_radius=(15/(16*pi))**0.5,
+            disk_large_proportion=0.2,
+            disk_large_radius=(5/(4*pi))**0.5,
+        ),
     ]
-    for problem_i, problem in enumerate(problems):
-        # Output configure
 
-        problem.calculate()
-        configure = problem.configure_output()
-        configure_a = '%.3f' % problem.overlap_threshold_proportion
-        configure_n = '%i' % problem.disk_num
-        configure_file_name = f'{configure_a}-{configure_n}.txt'
-        with open(configure_file_name, 'w') as f:
-            f.write(configure)
+    # Generate configurations
+    # We choose the third one:
+    problem = problems[2]
 
-        # Plot relation bewteen
-        # overlap threshold and inside proportion
-        disk_nums = [50, 100, 200, 400]
-        thresholds = [0.4, 0.6, 0.7, 0.8, 0.9, 1]
-        for disk_num in disk_nums:
+    problem.sample_num = 200
+    for threshold, disk_num in (
+        # We choose these 3 pairs:
+        (0.18, 100),
+        (0.65, 200),
+        (0.81, 300),
+    ):
+        problem.disk_num = disk_num
+        problem.overlap_threshold_proportion = threshold
+        problem.place_disks()
+        with open(f'{threshold} - {disk_num}.txt', 'w') as f:
+            f.write(problem.configure_output())
+
+    # Generate plots
+    disk_nums = [50, 100, 200, 400]
+
+    import matplotlib.pyplot as plt
+
+    figure, axis = plt.subplots(len(problems), len(disk_nums))
+    plt.subplots_adjust(wspace=0.5, hspace=0.8)
+
+    repetition_num = 10
+    thresholds = [0.4, 0.6, 0.7, 0.8, 0.9, 1.0]
+
+    for problem_id, problem in enumerate(problems):
+        problem.sample_num = 200
+        for disk_num_id, disk_num in enumerate(disk_nums):
             problem.disk_num = disk_num
             proportions = []
             for threshold in thresholds:
                 problem.overlap_threshold_proportion = threshold
-                proportions.append(problem.calculate())
+                proportions.append(problem.calculate_average(repetition_num))
 
-            # Plot
+            axis_now = axis[problem_id][disk_num_id]
+            axis_now.set_ylim(0, 1)
+            axis_now.set_xlim(0.4, 1)
+            axis_now.plot(thresholds, proportions)
+            axis_now.set_title(f'{problem_id+1} - {disk_num}')
 
+    figure.set_size_inches(8, 4)
+    figure.savefig('Plots.png', dpi=300)
+
+    # Generate accuracy table
+    sample_nums = [100, 200, 400]
+    repetition_nums = [10, 20, 40, 80]
+
+    for problem_id, problem in enumerate(problems):
+        problem.overlap_threshold_proportion = 0.8
+        problem.disk_num = 400
+
+        table = [[''
+            for _ in range(len(repetition_nums)+1)]
+            for _ in range(len(sample_nums)+1)]
+
+        for sample_num_id, sample_num in enumerate(sample_nums):
+            table[sample_num_id+1][0] = str(sample_num)
+        for repetition_num_id, repetition_num in enumerate(repetition_nums):
+            table[0][repetition_num_id+1] = str(repetition_num)
+
+        for sample_num_id, sample_num in enumerate(sample_nums):
+            for repetition_num_id, repetition_num in enumerate(repetition_nums):
+                problem.sample_num = sample_num
+
+                table[sample_num_id+1][repetition_num_id+1] = \
+                    '%.3f' % problem.calculate_variance(repetition_num)
+        
+        with open(f'Accuracy - {problem_id+1}.csv', 'w') as f:
+            f.write('\n'.join([','.join(line) for line in table]))
 
 if __name__ == '__main__':
     main()
